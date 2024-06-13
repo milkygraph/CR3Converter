@@ -1,1 +1,0 @@
-CR3Converter is a GUI application that converts CR3 files into other raw and jpeg files.
