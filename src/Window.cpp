@@ -5,13 +5,10 @@ namespace CR3Converter {
 	GLFWwindow* Window::window = nullptr;
 	int Window::width = 0;
 	int Window::height = 0;
+	bool Window::s_ShouldClose = false;
 
 	std::optional<WindowError> Window::Init() {
 		auto result = InitGLFW();
-		if(result.has_value())
-			return result;
-
-		result = InitImGUI();
 		if(result.has_value())
 			return result;
 
@@ -47,24 +44,6 @@ namespace CR3Converter {
 		return std::nullopt;
 	}
 
-	std::optional<WindowError> Window::InitImGUI() {
-		IMGUI_CHECKVERSION();
-		ImGui::CreateContext();
-		ImGuiIO& io = ImGui::GetIO(); (void)io;
-
-		ImGui::StyleColorsDark();
-
-		if(!ImGui_ImplGlfw_InitForOpenGL(window, true)) {
-			return WindowError("Failed to initialize ImGUI for OpenGL");
-		}
-
-		if(!ImGui_ImplOpenGL3_Init("#version 330")) {
-			return WindowError("Failed to initialize OpenGL3 for ImGUI");
-		}
-
-		return std::nullopt;
-	}
-
 	void Window::SetFramebufferSizeCallback(GLFWwindow* window, int width, int height) {
 		glViewport(0, 0, width, height);
 
@@ -78,8 +57,12 @@ namespace CR3Converter {
 		ImGui_ImplGlfw_Shutdown();
 	}
 
+	void Window::Close() {
+		s_ShouldClose = true;
+	}
+
 	bool Window::ShouldClose() {
-		return glfwWindowShouldClose(window);
+		return s_ShouldClose || glfwWindowShouldClose(window);
 	}
 
 	void Window::Clear(glm::vec4 color) {
@@ -93,8 +76,6 @@ namespace CR3Converter {
 	}
 
 	void Window::RenderImGUI() {
-		ImGui::Render();
-		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 	}
 
 }

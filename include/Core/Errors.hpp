@@ -19,3 +19,9 @@ struct LibRawError : Error {
 		Error::operator()("LibRaw Error: " + message);
 	}
 };
+
+struct GUIError : Error {
+	explicit GUIError(const std::string& message) {
+		Error::operator()("GUI Error: " + message);
+	}
+};
