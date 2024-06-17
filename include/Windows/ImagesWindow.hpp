@@ -6,14 +6,8 @@
 #include <filesystem>
 #include <libraw.h>
 #include <functional>
-
-struct Image {
-	libraw_processed_image_t* data;
-	unsigned int textureID;
-	std::string name;
-	int width;
-	int height;
-};
+#include <Components/Image.hpp>
+#include <Core/ImageProcessor.hpp>
 
 namespace CR3Converter {
 	class ImagesWindow {
@@ -22,6 +16,7 @@ namespace CR3Converter {
 			void Render();
 			void ProcessQueue();
 	private:
+		ImageProcessor m_Processor;
 		std::vector<Image> m_Images; // Vector of images
 		std::queue<Image*> m_GLQueue; // Queue of OpenGL commands
 	};

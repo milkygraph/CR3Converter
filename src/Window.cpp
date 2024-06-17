@@ -32,6 +32,8 @@ namespace CR3Converter {
 			return WindowError("Failed to create GLFW window");
 		}
 
+		glfwSetWindowSizeLimits(window, 800, 600, GLFW_DONT_CARE, GLFW_DONT_CARE);
+
 		glfwMakeContextCurrent(window);
 		glfwSwapInterval(1); // Enable vsync
 		if(glewInit() != GLEW_OK) {

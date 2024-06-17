@@ -2,35 +2,86 @@
 #include <Core/Errors.hpp>
 #include <libraw.h>
 #include <future>
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
 
 namespace CR3Converter {
+	void LoadImage(std::queue<Image*>& gl_queue,
+				   const std::filesystem::path& directory, Image& image) {
+		LibRaw iProcessor;
+		auto path = directory / image.name;
+		int result = iProcessor.open_file(path.string().c_str());
+		if (result != LIBRAW_SUCCESS) {
+			LibRawError("Failed to open file" + path.string());
+			return;
+		}
+
+		result = iProcessor.unpack_thumb();
+		if (result != LIBRAW_SUCCESS) {
+			LibRawError("Failed to unpack file" + path.string());
+			return;
+		}
+
+		auto data = iProcessor.dcraw_make_mem_thumb();
+		if (data == nullptr) {
+			LibRawError("Failed to make thumbnail for file" + path.string());
+			return;
+		}
+
+		if(iProcessor.imgdata.thumbnail.tformat == LIBRAW_THUMBNAIL_JPEG) {
+			// Load the JPEG image
+			int width, height, channels;
+			unsigned char* jpeg_data = stbi_load_from_memory(data->data, iProcessor.imgdata.thumbnail.tlength, &width, &height, &channels, 0);
+			if(jpeg_data == nullptr) {
+				LibRawError("Failed to load JPEG thumbnail for file" + path.string());
+				return;
+			}
+			image.data = (char*)jpeg_data;
+		} else {
+			LibRawError("Unsupported thumbnail format for file" + path.string());
+			return;
+		}
+
+		image.width = iProcessor.imgdata.thumbnail.twidth;
+		image.height = iProcessor.imgdata.thumbnail.theight;
+
+		std::mutex images_mutex;
+		{
+			std::lock_guard<std::mutex> lock(images_mutex);
+			gl_queue.push(&image);
+		}
+
+		iProcessor.recycle();
+	}
+
 	void ImagesWindow::Render() {
 		ImGui::Begin("Images");
 
 		float available_width = ImGui::GetContentRegionAvail().x; // Available width in the current window
-		float current_x = 0.0f; // Track the current x position
+		float image_width = 200.0f; // Fixed width for each image
+		ImGui::Columns(available_width / image_width, nullptr, false);
 
 		for (auto &image : m_Images) {
-			float image_width = 200.0f; // Fixed width for each image
+			// If it is a new row, put a padding
+			if (ImGui::GetColumnIndex() == 0)
+				ImGui::SetCursorPosY(ImGui::GetCursorPosY() + ImGui::GetTextLineHeight());
+
 			float image_height = image.height / (image.width / 200.0f); // Maintain aspect ratio
-
-			// Check if there is enough space to fit the image in the current row
-			if (current_x + image_width > available_width) {
-				// Move to the next line if the image doesn't fit
-				ImGui::NewLine();
-				current_x = 0.0f; // Reset x position
-			} else {
-				ImGui::SameLine();
+			if(ImGui::InvisibleButton(image.name.c_str(), ImVec2(image_width, image_height)) && image.textureID != 0) {
+				std::cout << "Image clicked: " << image.name << std::endl;
 			}
+			ImGui::SetCursorPosY(ImGui::GetCursorPosY() - (image_height + ImGui::GetTextLineHeight()));
+			ImGui::Image((void*)(intptr_t)image.textureID, ImVec2(image_width, image_height));
 
-			// Display the image
-			ImGui::Image((void *)(intptr_t)image.textureID, ImVec2(image_width, image_height));
+			// Center the text
+			float text_width = ImGui::CalcTextSize(image.name.c_str()).x;
+			float cursor_x = ImGui::GetCursorPosX();
+			ImGui::SetCursorPosX(cursor_x + (image_width - text_width) / 2);
+			ImGui::Text("%s", image.name.c_str());
 
-			// Advance the current x position
-			current_x += image_width + ImGui::GetStyle().ItemSpacing.x * 4.0f;
+			ImGui::NextColumn();
 		}
-
-		ImGui::PopStyleVar();
+		ImGui::Columns(1);
 		ImGui::End();
 	}
 
@@ -48,43 +99,9 @@ namespace CR3Converter {
 			}
 		}
 
-		// Thread pool and mutex for thread safety
-		std::vector<std::future<void>> futures;
-		std::mutex images_mutex;
-
-		// Function to load an image
-		auto load_image = [&](Image& image) {
-			LibRaw iProcessor;
-			auto path = directory / image.name;
-			int result = iProcessor.open_file(path.string().c_str());
-			if (result != LIBRAW_SUCCESS) {
-				LibRawError("Failed to open file" + path.string());
-				return;
-			}
-
-			result = iProcessor.unpack();
-			if (result != LIBRAW_SUCCESS) {
-				LibRawError("Failed to unpack file" + path.string());
-				return;
-			}
-
-			iProcessor.dcraw_process();
-			auto data = iProcessor.dcraw_make_mem_image();
-			image.data = data;
-			image.width = data->width;
-			image.height = data->height;
-
-			// Lock the mutex and push the image to the queue
-			{
-				std::lock_guard<std::mutex> lock(images_mutex);
-				m_GLQueue.push(&image);
-			}
-		};
-
-		futures.reserve(m_Images.size());
 		// Launch a thread for each image
 		for (auto &image : m_Images) {
-			futures.push_back(std::async(std::launch::async, load_image, std::ref(image)));
+			m_Processor.Enqueue(LoadImage, std::ref(m_GLQueue), directory, std::ref(image));
 		}
 	}
 
@@ -93,7 +110,7 @@ namespace CR3Converter {
 			auto image = m_GLQueue.front();
 			glGenTextures(1, &image->textureID);
 			glBindTexture(GL_TEXTURE_2D, image->textureID);
-			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, image->width, image->height, 0, GL_RGB, GL_UNSIGNED_BYTE, image->data->data);
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, image->width, image->height, 0, GL_RGB, GL_UNSIGNED_BYTE, image->data);
 			glGenerateMipmap(GL_TEXTURE_2D);
 
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -102,6 +119,7 @@ namespace CR3Converter {
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
 			glBindTexture(GL_TEXTURE_2D, 0);
+			free(image->data);
 			m_GLQueue.pop();
 			break;
 		}

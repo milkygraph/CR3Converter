@@ -41,7 +41,7 @@ namespace CR3Converter {
 			if(ImGui::BeginMenu("File")) {
 				if(ImGui::MenuItem("Open Folder")) {
 					// TODO: Open folder dialog
-					m_CurrentDirectory = "./samples/";
+					m_CurrentDirectory = "/mnt/Data/Photos/100CANON/";
 					m_ImagesWindow.LoadImages(m_CurrentDirectory);
 				}
 				if(ImGui::MenuItem("Exit")) {
